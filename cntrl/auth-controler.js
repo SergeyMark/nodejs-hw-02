@@ -1,11 +1,10 @@
 const User = require('../models/user-schema.js')
 
-
 const fs = require('fs/promises')
 const path = require('path');
 const avatarDir = path.resolve('public', "avatars")
  
-const { HttpError } = require('../helpers/index.js');
+const { HttpError, sendEmail } = require('../helpers');
 
 const { cntrlWrapper } = require('../decorators/index.js');
 
@@ -30,6 +29,12 @@ const userLoginSchema = Joi.object({
     email: Joi.string().pattern(/^([a-zA-Z0-9_\-]+)@([a-zA-Z0-9_\-]+)\.[a-zA-Z]{2,5}$/, 'this is not email').required(),
 })
 
+const userVerifySchema = Joi.object({
+    email: Joi.string().pattern(/^([a-zA-Z0-9_\-]+)@([a-zA-Z0-9_\-]+)\.[a-zA-Z]{2,5}$/, 'this is not email').required()
+})
+
+
+
 const signUp = async(req, res) => {
     const { error } = userRegisterSchema.validate(req.body)
     if (error) {
@@ -44,16 +49,70 @@ const signUp = async(req, res) => {
     }
 
     const hashPassword = await bcrypt.hash(password, 10)
+    const verificationToken = String(Date.now());
 
     const avatarUrl = await gravatar.url(email)
 
-    const newUser = await User.create({...req.body, password: hashPassword, avatarURL: avatarUrl})
+    const newUser = await User.create({...req.body, password: hashPassword, avatarURL: avatarUrl, verificationToken})
+
+    const verifyEmail = {
+        to: email,
+        subject: "Verify",
+        html: `<a target="_blank" href="http://localhost:3000/api/users/verify/${verificationToken}">Click to verify</a>`,
+    }
+
+    await sendEmail(verifyEmail)
+
     res.status(201).json({
         "user": {
             "email": newUser.email,
             "subscription": newUser.subscription,
           }
     })
+}
+
+const verificationToken = async(req, res) => {
+    const { verificationToken } = req.params;
+    const user = await User.findOne({verificationToken})
+
+    if(!user){
+        throw HttpError(401)
+    }
+
+    await User.findByIdAndUpdate(user._id, {verify: true, verificationToken: ''})
+
+    res.json({message: 'Verification successful'})
+}
+
+const verify = async(req, res) => {    
+    const { error } = userVerifySchema.validate(req.body)
+    if (error) {
+        throw HttpError(400, "missing required field email")
+    }
+
+    const { email } = req.body;
+    const user = await User.findOne({email})
+
+    console.log(user)
+
+    if(!user) {
+        throw HttpError(401)
+    }
+
+    if(user.verify){
+        throw HttpError(400, "Verification has already been passed")
+    }
+
+    const verifyEmail = {
+        to: email,
+        subject: "Verify",
+        html: `<a target="_blank" href="http://localhost:3000/api/users/verify/${user.verificationToken}">Click to verify</a>`,
+    }
+
+    await sendEmail(verifyEmail)
+
+    res.status(201).json({"message": "Verification email sent"})
+    
 }
 
 const login = async(req, res) => {
@@ -66,6 +125,10 @@ const login = async(req, res) => {
     const user = await User.findOne({email})
     if (!user) {
         throw HttpError(401, `Email or password is wrong`)
+    }
+
+    if(!user.verify) {
+        throw HttpError(401)
     }
 
     const passwordCompare = await bcrypt.compare(password, user.password)
@@ -140,5 +203,7 @@ module.exports = {
     login: cntrlWrapper(login),
     getCurrent: cntrlWrapper(getCurrent),
     logout: cntrlWrapper(logout),
-    avatars: cntrlWrapper(avatars)
+    avatars: cntrlWrapper(avatars),
+    verificationToken: cntrlWrapper(verificationToken),
+    verify: cntrlWrapper(verify)
 }
