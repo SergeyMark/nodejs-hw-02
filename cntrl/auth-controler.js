@@ -18,7 +18,6 @@ const Jimp = require("jimp");
 
 const {SECRET_KEY} = require('../config.js')
 
-
 const userRegisterSchema = Joi.object({
     password: Joi.string().required(),
     email: Joi.string().pattern(/^([a-zA-Z0-9_\-]+)@([a-zA-Z0-9_\-]+)\.[a-zA-Z]{2,5}$/, 'this is not email').required(),
@@ -33,6 +32,8 @@ const userLoginSchema = Joi.object({
 const userVerifySchema = Joi.object({
     email: Joi.string().pattern(/^([a-zA-Z0-9_\-]+)@([a-zA-Z0-9_\-]+)\.[a-zA-Z]{2,5}$/, 'this is not email').required()
 })
+
+
 
 const signUp = async(req, res) => {
     const { error } = userRegisterSchema.validate(req.body)
